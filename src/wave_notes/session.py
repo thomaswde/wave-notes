@@ -133,8 +133,33 @@ def slugify(value: str) -> str:
 
 
 def process_alive(pid: int) -> bool:
+    if os.name == "nt":
+        return _windows_process_alive(pid)
     try:
         os.kill(pid, 0)
     except OSError:
         return False
     return True
+
+
+def _windows_process_alive(pid: int) -> bool:
+    import ctypes
+
+    process_query_limited_information = 0x1000
+    synchronize = 0x00100000
+    wait_timeout = 0x00000102
+    wait_object_0 = 0x00000000
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(process_query_limited_information | synchronize, False, int(pid))
+    if not handle:
+        return False
+    try:
+        wait_result = kernel32.WaitForSingleObject(handle, 0)
+        if wait_result == wait_timeout:
+            return True
+        if wait_result == wait_object_0:
+            return False
+        return False
+    finally:
+        kernel32.CloseHandle(handle)

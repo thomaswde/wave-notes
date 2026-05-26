@@ -15,7 +15,7 @@ from wave_notes.audio import _wav_sample_width, split_wav_fixed
 from wave_notes.config import AppConfig, OutputConfig, load_config
 from wave_notes.cli import build_parser
 from wave_notes.notes import _pi_subprocess_command, _pi_thinking_arg
-from wave_notes.session import make_session, slugify, write_state
+from wave_notes.session import make_session, process_alive, slugify, write_state
 from wave_notes.tray import CommandResult, TrayController, _format_elapsed, meeting_command
 
 
@@ -65,6 +65,9 @@ class ContractTests(unittest.TestCase):
 
     def test_slugify_meeting_title(self) -> None:
         self.assertEqual(slugify("Product Sync / Windows v1"), "product-sync-windows-v1")
+
+    def test_process_alive_detects_current_process(self) -> None:
+        self.assertTrue(process_alive(os.getpid()))
 
     def test_start_title_is_optional(self) -> None:
         parser = build_parser()
