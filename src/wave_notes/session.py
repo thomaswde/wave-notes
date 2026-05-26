@@ -24,17 +24,18 @@ class SessionPaths:
     stop_signal: Path
 
 
-def make_session(config: AppConfig, title: str) -> SessionPaths:
+def make_session(config: AppConfig, title: str | None = None) -> SessionPaths:
     now = datetime.now().astimezone()
-    slug = slugify(title)
-    folder = f"{now:%Y-%m-%d_%H%M}_{slug}"
+    title_text = title.strip() if title else ""
+    slug = slugify(title_text) if title_text else ""
+    folder = f"{now:%Y-%m-%d_%H%M}_{slug}" if slug else f"{now:%Y-%m-%d_%H%M}"
     root = config.output.root_dir / folder
     paths = paths_for(root)
     paths.root.mkdir(parents=True, exist_ok=False)
     paths.chunks.mkdir(parents=True, exist_ok=True)
 
     metadata = {
-        "title": title,
+        "title": title_text or None,
         "slug": slug,
         "session_dir": str(paths.root),
         "created_at": now.isoformat(timespec="seconds"),

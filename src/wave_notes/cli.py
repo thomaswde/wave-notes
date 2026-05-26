@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import shutil
 import subprocess
 import sys
 import time
+import wave
 from datetime import datetime
 from pathlib import Path
 
-from .audio import WAV_SAMPLE_WIDTHS, list_devices, record_for_seconds
+from .audio import WAV_SAMPLE_WIDTHS, list_devices, record_for_seconds, select_input_device, wav_duration_seconds
 from .config import load_config, write_default_config
 from .notes import generate_notes
 from .session import (
@@ -55,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.set_defaults(handler=cmd_record)
 
     start = sub.add_parser("start", help="Start recording a meeting")
-    start.add_argument("title")
+    start.add_argument("title", nargs="?", help="Optional meeting title")
     start.set_defaults(handler=cmd_start)
 
     stop = sub.add_parser("stop", help="Stop the active recording")
@@ -64,6 +66,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="Show active recording status")
     status.set_defaults(handler=cmd_status)
+
+    inspect = sub.add_parser("inspect", help="Inspect a session's artifacts")
+    inspect.add_argument("session", nargs="?", default="latest")
+    inspect.set_defaults(handler=cmd_inspect)
 
     transcribe = sub.add_parser("transcribe", help="Transcribe a session")
     transcribe.add_argument("session", nargs="?", default="latest")
@@ -118,14 +124,29 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     openai_key_set = bool(os.environ.get("OPENAI_API_KEY"))
     check("OpenAI key", openai_key_set, "OPENAI_API_KEY is set" if openai_key_set else "set OPENAI_API_KEY")
     pi_path = shutil.which(config.notes.pi_command)
-    check("Pi command", bool(pi_path), pi_path or f"{config.notes.pi_command} not found on PATH")
+    pi_required = config.notes.provider == "pi"
+    check("Pi command", bool(pi_path), pi_path or f"{config.notes.pi_command} not found on PATH", required=pi_required)
+    if pi_path:
+        check("Pi launch", _pi_version_ok(pi_path), "pi --version runs", required=pi_required)
     check("Output root", True, str(config.output.root_dir))
+    if config.notes.provider == "pi" and config.notes.pi_provider == "openai":
+        check(
+            "Pi OpenAI key",
+            openai_key_set,
+            "OPENAI_API_KEY is set" if openai_key_set else "set OPENAI_API_KEY for Pi provider=openai",
+        )
     check(
         "Audio device config",
         bool(config.audio.device_name),
         config.audio.device_name or "not set; default input will be used",
         required=False,
     )
+    if config.audio.device_name:
+        try:
+            device_index = select_input_device(config.audio.device_name)
+            check("Audio device match", True, f"input index {device_index}")
+        except SystemExit as exc:
+            check("Audio device match", False, str(exc))
     check(
         "Audio dtype",
         config.audio.dtype in WAV_SAMPLE_WIDTHS,
@@ -229,6 +250,23 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(f"Started: {state.get('started_at')}")
 
 
+def cmd_inspect(args: argparse.Namespace) -> None:
+    config = _config(args)
+    paths = resolve_session(config, args.session)
+    metadata = _read_metadata(paths.metadata)
+    print(f"Session: {paths.root}")
+    print(f"Status: {metadata.get('status', 'unknown')}")
+    print(f"Title: {metadata.get('title') or '(untitled)'}")
+    print(f"Created: {metadata.get('created_at', 'unknown')}")
+    print(f"Stopped: {metadata.get('stopped_at', 'not stopped')}")
+    _print_artifact("Audio", paths.audio, _audio_detail(paths.audio))
+    _print_artifact("Transcript JSON", paths.root / "transcript.openai.json")
+    _print_artifact("Transcript Markdown", paths.root / "transcript.openai.md")
+    _print_artifact("Notes Markdown", paths.root / "notes.md")
+    _print_artifact("Notes JSON", paths.root / "notes.json")
+    _print_artifact("Log", paths.log)
+
+
 def cmd_transcribe(args: argparse.Namespace) -> None:
     config = _config(args)
     paths = resolve_session(config, args.session)
@@ -251,3 +289,50 @@ def _recorder_popen_kwargs() -> dict:
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def _read_metadata(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _print_artifact(label: str, path: Path, detail: str | None = None) -> None:
+    if not path.exists():
+        print(f"{label}: missing")
+        return
+    suffix = f" ({detail})" if detail else ""
+    print(f"{label}: {path}{suffix}")
+
+
+def _audio_detail(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return f"{wav_duration_seconds(path):.1f}s, {path.stat().st_size} bytes"
+    except (EOFError, wave.Error):
+        return f"{path.stat().st_size} bytes, unreadable WAV header"
+
+
+def _pi_version_ok(pi_path: str) -> bool:
+    cmd = _windows_command_shim(pi_path, ["--version"])
+    try:
+        completed = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
+def _windows_command_shim(command: str, args: list[str]) -> list[str]:
+    suffix = Path(command).suffix.casefold()
+    if os.name == "nt" and suffix in {".bat", ".cmd"}:
+        return ["cmd.exe", "/d", "/c", subprocess.list2cmdline([command, *args])]
+    return [command, *args]

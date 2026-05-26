@@ -16,6 +16,7 @@ meeting start "Product sync"
 meeting stop
 meeting transcribe latest --provider openai
 meeting notes latest --provider pi
+meeting inspect latest
 ```
 
 The result is a normal folder of files:
@@ -214,6 +215,14 @@ Start a session:
 meeting start "Windows first test"
 ```
 
+If you omit the title, the session folder uses only the timestamp. This is useful
+for the future tray app flow where a meeting can start immediately and receive an
+AI-generated title during processing:
+
+```powershell
+meeting start
+```
+
 Check status:
 
 ```powershell
@@ -246,6 +255,11 @@ meeting notes latest --provider openai
 
 Open the latest session folder under `Meetings/` and inspect `audio.wav`,
 `transcript.openai.md`, `notes.md`, `metadata.json`, and `processing.log`.
+You can also summarize the artifacts from the CLI:
+
+```powershell
+meeting inspect latest
+```
 
 ## One-Command Processing
 
@@ -292,7 +306,7 @@ Pi notes generation fails:
 - Run `pi --version`.
 - Confirm the `pi` command is on `PATH`.
 - Try `meeting notes latest --provider openai` to isolate whether the transcript
-and notes prompt are valid.
+  and notes prompt are valid.
 
 ## Current Readiness Notes
 

@@ -7,9 +7,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from wave_notes.audio import _wav_sample_width, split_wav_fixed
-from wave_notes.config import load_config
+from wave_notes.config import AppConfig, OutputConfig, load_config
+from wave_notes.cli import build_parser
 from wave_notes.notes import _pi_subprocess_command, _pi_thinking_arg
-from wave_notes.session import slugify
+from wave_notes.session import make_session, slugify
 
 
 class ContractTests(unittest.TestCase):
@@ -24,6 +25,20 @@ class ContractTests(unittest.TestCase):
 
     def test_slugify_meeting_title(self) -> None:
         self.assertEqual(slugify("Product Sync / Windows v1"), "product-sync-windows-v1")
+
+    def test_start_title_is_optional(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["start"])
+
+        self.assertIsNone(args.title)
+
+    def test_untitled_session_uses_timestamp_only_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config = AppConfig(output=OutputConfig(root_dir=Path(temp)))
+            session = make_session(config)
+
+            self.assertRegex(session.root.name, r"^\d{4}-\d{2}-\d{2}_\d{4}$")
+            self.assertNotIn("_meeting", session.root.name)
 
     def test_split_wav_fixed_writes_numbered_chunks(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
