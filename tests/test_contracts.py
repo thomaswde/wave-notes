@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import io
+import json
+import os
 import tempfile
 import unittest
 import wave
+from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +15,7 @@ from wave_notes.audio import _wav_sample_width, split_wav_fixed
 from wave_notes.config import AppConfig, OutputConfig, load_config
 from wave_notes.cli import build_parser
 from wave_notes.notes import _pi_subprocess_command, _pi_thinking_arg
-from wave_notes.session import make_session, slugify
+from wave_notes.session import make_session, slugify, write_state
 
 
 class ContractTests(unittest.TestCase):
@@ -31,6 +36,64 @@ class ContractTests(unittest.TestCase):
         args = parser.parse_args(["start"])
 
         self.assertIsNone(args.title)
+
+    def test_status_json_is_supported(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["status", "--json"])
+
+        self.assertTrue(args.json)
+
+    def test_status_json_reports_inactive_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config_path = Path(temp) / "config.toml"
+            config_path.write_text('[output]\nroot_dir = "Meetings"\n', encoding="utf-8")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "status", "--json"])
+
+            output = io.StringIO()
+            with patch.dict(os.environ, {"WAVE_NOTES_HOME": str(Path(temp) / "home")}), redirect_stdout(output):
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertEqual(
+                payload,
+                {
+                    "active": False,
+                    "pid": None,
+                    "session_path": None,
+                    "started_at": None,
+                    "elapsed_seconds": None,
+                    "latest_session_path": None,
+                },
+            )
+
+    def test_status_json_reports_active_contract_and_latest_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output_root = root / "Meetings"
+            config_path = root / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{output_root.as_posix()}"\n', encoding="utf-8")
+            session = make_session(AppConfig(output=OutputConfig(root_dir=output_root)), "Status test")
+            started_at = (datetime.now(timezone.utc) - timedelta(seconds=65)).isoformat(timespec="seconds")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "status", "--json"])
+
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"WAVE_NOTES_HOME": str(root / "home")}),
+                patch("wave_notes.cli.process_alive", return_value=True),
+                redirect_stdout(output),
+            ):
+                write_state({"pid": 1234, "session_dir": str(session.root), "started_at": started_at})
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["active"])
+            self.assertEqual(payload["pid"], 1234)
+            self.assertEqual(payload["session_path"], str(session.root))
+            self.assertEqual(payload["started_at"], started_at)
+            self.assertGreaterEqual(payload["elapsed_seconds"], 60)
+            self.assertEqual(payload["latest_session_path"], str(session.root))
 
     def test_untitled_session_uses_timestamp_only_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -229,6 +229,15 @@ Check status:
 meeting status
 ```
 
+For tray apps or scripts, use the structured status contract:
+
+```powershell
+meeting status --json
+```
+
+It reports whether recording is active, the recorder PID, active session path,
+started time, elapsed seconds, and the latest known session path.
+
 Stop the recording:
 
 ```powershell

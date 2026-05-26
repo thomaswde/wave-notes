@@ -65,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop.set_defaults(handler=cmd_stop)
 
     status = sub.add_parser("status", help="Show active recording status")
+    status.add_argument("--json", action="store_true", help="Write machine-readable status JSON")
     status.set_defaults(handler=cmd_status)
 
     inspect = sub.add_parser("inspect", help="Inspect a session's artifacts")
@@ -237,17 +238,22 @@ def cmd_stop(args: argparse.Namespace) -> None:
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    _config(args)
-    state = read_state()
-    if not state:
+    config = _config(args)
+    payload = _status_payload(config)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    if not payload["pid"] and not payload["session_path"]:
         print("No active recording.")
         return
-    pid = int(state.get("pid", 0))
-    alive = process_alive(pid) if pid else False
-    print(f"Recording active: {alive}")
-    print(f"PID: {pid}")
-    print(f"Session: {state.get('session_dir')}")
-    print(f"Started: {state.get('started_at')}")
+    print(f"Recording active: {payload['active']}")
+    print(f"PID: {payload['pid'] or 0}")
+    print(f"Session: {payload['session_path']}")
+    print(f"Started: {payload['started_at']}")
+    if payload["elapsed_seconds"] is not None:
+        print(f"Elapsed seconds: {payload['elapsed_seconds']}")
+    if payload["latest_session_path"]:
+        print(f"Latest session: {payload['latest_session_path']}")
 
 
 def cmd_inspect(args: argparse.Namespace) -> None:
@@ -283,6 +289,50 @@ def cmd_notes(args: argparse.Namespace) -> None:
 
 def _config(args: argparse.Namespace):
     return load_config(args.config)
+
+
+def _status_payload(config) -> dict:
+    state = read_state()
+    pid = _state_pid(state)
+    started_at = state.get("started_at")
+    return {
+        "active": process_alive(pid) if pid else False,
+        "pid": pid,
+        "session_path": state.get("session_dir") or None,
+        "started_at": started_at or None,
+        "elapsed_seconds": _elapsed_seconds(started_at),
+        "latest_session_path": _latest_session_path(config),
+    }
+
+
+def _state_pid(state: dict) -> int | None:
+    try:
+        pid = int(state.get("pid", 0))
+    except (TypeError, ValueError):
+        return None
+    return pid or None
+
+
+def _elapsed_seconds(started_at: str | None) -> int | None:
+    if not started_at:
+        return None
+    try:
+        started = datetime.fromisoformat(started_at)
+    except ValueError:
+        return None
+    if started.tzinfo is None:
+        started = started.astimezone()
+    return max(0, int((datetime.now().astimezone() - started).total_seconds()))
+
+
+def _latest_session_path(config) -> str | None:
+    root = config.output.root_dir
+    if not root.exists():
+        return None
+    candidates = [p for p in root.iterdir() if p.is_dir()]
+    if not candidates:
+        return None
+    return str(max(candidates, key=lambda p: p.stat().st_mtime))
 
 
 def _recorder_popen_kwargs() -> dict:
