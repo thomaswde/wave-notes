@@ -18,6 +18,9 @@ The repository already has a useful CLI-first foundation:
 - `meeting devices` and `meeting doctor` support local setup checks.
 - `meeting start [title]`, `meeting stop`, and `meeting status` manage one active
   recording through file-backed state.
+- `meeting status --json` exposes stable tray-pollable recording state.
+- `meeting latest`, `meeting latest --json`, and `meeting open latest` expose
+  stable latest-session and folder-opening primitives.
 - `meeting stop --process`, `meeting transcribe`, and `meeting notes` support the
   downstream pipeline.
 - Session folders already preserve ordinary files such as `audio.wav`,
@@ -87,13 +90,73 @@ Deliverables:
 
 Goal: make the tray useful immediately after recording.
 
+Current CLI contract:
+
+```powershell
+meeting latest
+meeting latest --json
+meeting open latest
+```
+
+`meeting latest --json` returns:
+
+- `exists`
+- `session_path`
+- `reason`
+
 Deliverables:
 
-- Add or confirm a command/API that resolves the latest session folder.
-- Implement "Open latest session folder" from the tray.
+- Keep the latest-session command/API stable for tray use.
+- Implement "Open latest session folder" from the tray using `meeting open latest`.
 - After stop/process, offer a notification action or menu state that opens the
   completed folder.
 - Ensure missing output directories and empty history fail gently.
+
+## Pre-Tray Dependency Plan
+
+Before building the system tray utility, the CLI should expose every operation
+the tray needs as a stable command. That keeps the tray thin and avoids creating
+a second source of truth.
+
+Ready before tray shell:
+
+- Done: status polling via `meeting status --json`.
+- Done: latest-session resolution via `meeting latest --json`.
+- Done: folder opening via `meeting open latest`.
+- Done: recording controls via `meeting start`, `meeting stop`, and
+  `meeting stop --process`.
+- Done: environment checks via `meeting doctor`.
+- Done: observable errors for already-recording, no-active-recording, missing
+  output directory, and empty session history.
+
+Nice to settle during the tray shell:
+
+- How the tray surfaces a missing config. The current CLI falls back to defaults
+  when `~\.wave-notes\config.toml` does not exist, so the tray can either expose
+  `meeting init` or launch settings when first-run configuration is needed.
+- Whether `meeting open latest` should be the only folder-opening path or whether
+  notifications should open the completed session path captured from
+  `meeting stop`/`meeting status --json`.
+
+Decisions to make at tray implementation time:
+
+- Tray framework: start with a small Python tray process if it can launch
+  reliably from the installed environment; package later if startup is fiddly.
+- Command runner: prefer invoking the installed `meeting` executable, with a
+  documented fallback to `python -m wave_notes` for development.
+- Polling interval: start simple, likely every 2 seconds while idle/recording,
+  and revisit only if it feels sluggish or wasteful.
+- Notification model: show concise success/failure notifications and keep full
+  detail in command output or session logs.
+- Settings launch: open a dedicated settings process/window rather than putting
+  config editing logic into the tray loop.
+
+Remaining optional dependencies:
+
+- Typed handwritten notes can wait until the tray controls are usable.
+- Start-with-Windows and packaging can wait until the basic tray is proven.
+- AI title generation can wait until recording, processing, and folder-opening
+  flows are boring.
 
 ### Phase 4: Settings GUI
 

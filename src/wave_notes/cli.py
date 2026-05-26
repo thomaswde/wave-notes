@@ -68,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true", help="Write machine-readable status JSON")
     status.set_defaults(handler=cmd_status)
 
+    latest = sub.add_parser("latest", help="Print the latest session folder")
+    latest.add_argument("--json", action="store_true", help="Write machine-readable latest-session JSON")
+    latest.set_defaults(handler=cmd_latest)
+
+    open_session = sub.add_parser("open", help="Open a session folder")
+    open_session.add_argument("session", nargs="?", default="latest")
+    open_session.set_defaults(handler=cmd_open)
+
     inspect = sub.add_parser("inspect", help="Inspect a session's artifacts")
     inspect.add_argument("session", nargs="?", default="latest")
     inspect.set_defaults(handler=cmd_inspect)
@@ -256,6 +264,24 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"Latest session: {payload['latest_session_path']}")
 
 
+def cmd_latest(args: argparse.Namespace) -> None:
+    config = _config(args)
+    payload = _latest_payload(config)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    if not payload["exists"]:
+        raise SystemExit(payload["reason"])
+    print(payload["session_path"])
+
+
+def cmd_open(args: argparse.Namespace) -> None:
+    config = _config(args)
+    paths = resolve_session(config, args.session)
+    _open_path(paths.root)
+    print(f"Opened {paths.root}")
+
+
 def cmd_inspect(args: argparse.Namespace) -> None:
     config = _config(args)
     paths = resolve_session(config, args.session)
@@ -305,6 +331,28 @@ def _status_payload(config) -> dict:
     }
 
 
+def _latest_payload(config) -> dict:
+    root = config.output.root_dir
+    if not root.exists():
+        return {
+            "exists": False,
+            "session_path": None,
+            "reason": f"No output directory exists yet: {root}",
+        }
+    latest = _latest_session_candidate(root)
+    if latest is None:
+        return {
+            "exists": False,
+            "session_path": None,
+            "reason": f"No sessions found in {root}",
+        }
+    return {
+        "exists": True,
+        "session_path": str(latest),
+        "reason": None,
+    }
+
+
 def _state_pid(state: dict) -> int | None:
     try:
         pid = int(state.get("pid", 0))
@@ -326,13 +374,27 @@ def _elapsed_seconds(started_at: str | None) -> int | None:
 
 
 def _latest_session_path(config) -> str | None:
-    root = config.output.root_dir
+    latest = _latest_session_candidate(config.output.root_dir)
+    return str(latest) if latest else None
+
+
+def _latest_session_candidate(root: Path) -> Path | None:
     if not root.exists():
         return None
     candidates = [p for p in root.iterdir() if p.is_dir()]
     if not candidates:
         return None
-    return str(max(candidates, key=lambda p: p.stat().st_mtime))
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _open_path(path: Path) -> None:
+    if os.name == "nt":
+        os.startfile(path)  # type: ignore[attr-defined]
+        return
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+        return
+    subprocess.run(["xdg-open", str(path)], check=False)
 
 
 def _recorder_popen_kwargs() -> dict:

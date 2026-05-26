@@ -270,6 +270,27 @@ You can also summarize the artifacts from the CLI:
 meeting inspect latest
 ```
 
+For scripts and tray integrations, resolve or open the latest session directly:
+
+```powershell
+meeting latest
+meeting latest --json
+meeting open latest
+```
+
+`meeting latest --json` reports whether a latest session exists, the session
+path, and a reason when no session can be found.
+
+The structured shape is stable for tray clients:
+
+```json
+{
+  "exists": true,
+  "reason": null,
+  "session_path": "D:\\Meetings\\2026-05-26_1430_product-sync"
+}
+```
+
 ## One-Command Processing
 
 Once recording, STT, and notes work independently:

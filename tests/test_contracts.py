@@ -43,6 +43,18 @@ class ContractTests(unittest.TestCase):
 
         self.assertTrue(args.json)
 
+    def test_latest_json_is_supported(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["latest", "--json"])
+
+        self.assertTrue(args.json)
+
+    def test_open_defaults_to_latest_session(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["open"])
+
+        self.assertEqual(args.session, "latest")
+
     def test_status_json_reports_inactive_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             config_path = Path(temp) / "config.toml"
@@ -94,6 +106,79 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(payload["started_at"], started_at)
             self.assertGreaterEqual(payload["elapsed_seconds"], 60)
             self.assertEqual(payload["latest_session_path"], str(session.root))
+
+    def test_latest_json_reports_missing_output_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            missing_root = Path(temp) / "Meetings"
+            config_path = Path(temp) / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{missing_root.as_posix()}"\n', encoding="utf-8")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "latest", "--json"])
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertFalse(payload["exists"])
+            self.assertIsNone(payload["session_path"])
+            self.assertIn("No output directory exists yet", payload["reason"])
+
+    def test_latest_json_reports_empty_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp) / "Meetings"
+            output_root.mkdir()
+            config_path = Path(temp) / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{output_root.as_posix()}"\n', encoding="utf-8")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "latest", "--json"])
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertFalse(payload["exists"])
+            self.assertIsNone(payload["session_path"])
+            self.assertIn("No sessions found", payload["reason"])
+
+    def test_latest_json_reports_latest_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp) / "Meetings"
+            config = AppConfig(output=OutputConfig(root_dir=output_root))
+            first = make_session(config, "First")
+            second = make_session(config, "Second")
+            config_path = Path(temp) / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{output_root.as_posix()}"\n', encoding="utf-8")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "latest", "--json"])
+
+            os.utime(first.root, (1_700_000_000, 1_700_000_000))
+            os.utime(second.root, (1_700_000_100, 1_700_000_100))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["exists"])
+            self.assertEqual(payload["session_path"], str(second.root))
+            self.assertIsNone(payload["reason"])
+
+    def test_open_session_uses_resolved_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output_root = Path(temp) / "Meetings"
+            session = make_session(AppConfig(output=OutputConfig(root_dir=output_root)), "Open test")
+            config_path = Path(temp) / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{output_root.as_posix()}"\n', encoding="utf-8")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "open", "latest"])
+
+            output = io.StringIO()
+            with patch("wave_notes.cli._open_path") as open_path, redirect_stdout(output):
+                args.handler(args)
+
+            open_path.assert_called_once_with(session.root)
+            self.assertIn(f"Opened {session.root}", output.getvalue())
 
     def test_untitled_session_uses_timestamp_only_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
