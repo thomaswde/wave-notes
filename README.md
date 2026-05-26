@@ -329,6 +329,26 @@ notes = true
 The stages remain rerunnable. If notes fail, the audio and transcript stay on
 disk. If transcription fails, the original audio stays on disk.
 
+## Windows Tray Utility
+
+Install the tray dependencies alongside the CLI:
+
+```powershell
+python -m pip install -e ".[audio,tray]"
+```
+
+Launch the tray app:
+
+```powershell
+meeting-tray
+```
+
+The tray menu can start recording immediately, stop recording, stop and process,
+refresh status, open the latest session folder, run `meeting doctor`, and open
+the config file created by `meeting init`. It uses the same `meeting` CLI
+commands as the terminal workflow, so session folders, logs, metadata, and
+settings stay in one place.
+
 ## Troubleshooting
 
 `meeting devices` fails:

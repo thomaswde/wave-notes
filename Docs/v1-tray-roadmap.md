@@ -23,6 +23,8 @@ The repository already has a useful CLI-first foundation:
   stable latest-session and folder-opening primitives.
 - `meeting stop --process`, `meeting transcribe`, and `meeting notes` support the
   downstream pipeline.
+- `meeting-tray` provides the first tray shell over those CLI commands when
+  installed with the optional tray dependencies.
 - Session folders already preserve ordinary files such as `audio.wav`,
   `metadata.json`, transcripts, notes, chunks, and `processing.log`.
 
@@ -47,12 +49,12 @@ reliably.
 
 Deliverables:
 
-- Tray icon with menu actions for start, stop, stop and process, status, open
+- Done: tray icon with menu actions for start, stop, stop and process, status, open
   latest session, settings, and quit.
-- Command runner that invokes the local `meeting` executable or
+- Done: command runner that invokes the local `meeting` executable or
   `python -m wave_notes` consistently from the installed environment.
-- Visible success/error notifications for each action.
-- Defensive handling for already-recording, no-active-recording, and missing
+- Done: visible success/error notifications for each action.
+- Done: defensive handling for already-recording, no-active-recording, and missing
   config states.
 
 Notes:

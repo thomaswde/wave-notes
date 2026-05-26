@@ -16,6 +16,41 @@ from wave_notes.config import AppConfig, OutputConfig, load_config
 from wave_notes.cli import build_parser
 from wave_notes.notes import _pi_subprocess_command, _pi_thinking_arg
 from wave_notes.session import make_session, slugify, write_state
+from wave_notes.tray import CommandResult, TrayController, _format_elapsed, meeting_command
+
+
+class FakeMenu:
+    SEPARATOR = object()
+
+    def __init__(self, *items) -> None:
+        self.items = items
+
+
+class FakeIcon:
+    def __init__(self, name, image, title, menu) -> None:
+        self.name = name
+        self.image = image
+        self.title = title
+        self.menu = menu
+        self.notifications = []
+
+    def notify(self, message, title) -> None:
+        self.notifications.append((title, message))
+
+    def update_menu(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+
+class FakePystray:
+    Icon = FakeIcon
+    Menu = FakeMenu
+
+    @staticmethod
+    def MenuItem(text, action=None, enabled=True):
+        return {"text": text, "action": action, "enabled": enabled}
 
 
 class ContractTests(unittest.TestCase):
@@ -66,6 +101,55 @@ class ContractTests(unittest.TestCase):
         args = parser.parse_args(["open"])
 
         self.assertEqual(args.session, "latest")
+
+    @patch("wave_notes.tray.shutil.which", return_value=r"C:\Tools\meeting.exe")
+    def test_tray_command_prefers_installed_meeting_executable(self, _which) -> None:
+        command = meeting_command(["status", "--json"])
+
+        self.assertEqual(command, [r"C:\Tools\meeting.exe", "status", "--json"])
+
+    @patch("wave_notes.tray.sys.executable", r"C:\Python\python.exe")
+    @patch("wave_notes.tray.shutil.which", return_value=None)
+    def test_tray_command_falls_back_to_module_execution(self, _which) -> None:
+        command = meeting_command(["status", "--json"])
+
+        self.assertEqual(command, [r"C:\Python\python.exe", "-m", "wave_notes", "status", "--json"])
+
+    def test_tray_elapsed_format_is_compact(self) -> None:
+        self.assertEqual(_format_elapsed(None), None)
+        self.assertEqual(_format_elapsed(65), "1:05")
+        self.assertEqual(_format_elapsed(3661), "1:01:01")
+
+    def test_tray_command_result_detail_prefers_stderr(self) -> None:
+        result = CommandResult(returncode=1, stdout="stdout detail", stderr="stderr detail")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.detail, "stderr detail")
+
+    def test_tray_controller_refreshes_status_from_json(self) -> None:
+        def runner(args: list[str]) -> CommandResult:
+            self.assertEqual(args, ["status", "--json"])
+            return CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "active": True,
+                        "pid": 1234,
+                        "session_path": "D:/Meetings/session",
+                        "started_at": "2026-05-26T12:00:00-04:00",
+                        "elapsed_seconds": 125,
+                        "latest_session_path": "D:/Meetings/session",
+                    }
+                ),
+                "",
+            )
+
+        controller = TrayController(FakePystray, image=None, runner=runner)
+        controller._refresh_status(notify=True)
+
+        self.assertEqual(controller.icon.title, "Wave Notes: Recording 2:05")
+        self.assertEqual(controller.state.pid, 1234)
+        self.assertEqual(controller.icon.notifications[-1], ("Wave Notes", "Wave Notes: Recording 2:05"))
 
     def test_status_json_reports_inactive_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
