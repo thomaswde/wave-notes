@@ -125,6 +125,8 @@ Ready before tray shell:
 - Done: folder opening via `meeting open latest`.
 - Done: recording controls via `meeting start`, `meeting stop`, and
   `meeting stop --process`.
+- Done: structured recording control results via `meeting start --json` and
+  `meeting stop --json`.
 - Done: environment checks via `meeting doctor`.
 - Done: observable errors for already-recording, no-active-recording, missing
   output directory, and empty session history.

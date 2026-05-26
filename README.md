@@ -223,6 +223,16 @@ AI-generated title during processing:
 meeting start
 ```
 
+For tray apps or scripts, start can also return the recorder details without
+scraping terminal text:
+
+```powershell
+meeting start --json
+```
+
+It reports whether recording started, the recorder PID, the session path, and
+the start time.
+
 Check status:
 
 ```powershell
@@ -242,6 +252,14 @@ Stop the recording:
 
 ```powershell
 meeting stop
+```
+
+For tray apps or scripts, stop can also return the completed session path and
+processing outputs:
+
+```powershell
+meeting stop --json
+meeting stop --process --json
 ```
 
 Transcribe it:

@@ -58,10 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     start = sub.add_parser("start", help="Start recording a meeting")
     start.add_argument("title", nargs="?", help="Optional meeting title")
+    start.add_argument("--json", action="store_true", help="Write machine-readable start JSON")
     start.set_defaults(handler=cmd_start)
 
     stop = sub.add_parser("stop", help="Stop the active recording")
     stop.add_argument("--process", action="store_true", help="Run configured downstream processing after stop")
+    stop.add_argument("--json", action="store_true", help="Write machine-readable stop JSON")
     stop.set_defaults(handler=cmd_stop)
 
     status = sub.add_parser("status", help="Show active recording status")
@@ -196,17 +198,26 @@ def cmd_start(args: argparse.Namespace) -> None:
         "--dtype",
         config.audio.dtype,
     ]
-    log_handle = paths.log.open("a", encoding="utf-8")
     popen_kwargs = _recorder_popen_kwargs()
-    process = subprocess.Popen(cmd, stdout=log_handle, stderr=subprocess.STDOUT, **popen_kwargs)
-    write_state(
-        {
-            "pid": process.pid,
-            "session_dir": str(paths.root),
-            "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        }
-    )
+    with paths.log.open("a", encoding="utf-8") as log_handle:
+        process = subprocess.Popen(cmd, stdout=log_handle, stderr=subprocess.STDOUT, **popen_kwargs)
+    started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    write_state({"pid": process.pid, "session_dir": str(paths.root), "started_at": started_at})
     append_log(paths, f"started recorder pid={process.pid}")
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "started": True,
+                    "pid": process.pid,
+                    "session_path": str(paths.root),
+                    "started_at": started_at,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
     print(f"Recording started: {paths.root}")
     print(f"PID: {process.pid}")
 
@@ -231,18 +242,39 @@ def cmd_stop(args: argparse.Namespace) -> None:
             os.kill(pid, signal.SIGKILL)
 
     clear_state()
-    update_metadata(paths, status="recorded", stopped_at=datetime.now().astimezone().isoformat(timespec="seconds"))
+    stopped_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    update_metadata(paths, status="recorded", stopped_at=stopped_at)
     append_log(paths, "stop command completed")
-    print(f"Recording stopped: {paths.root}")
 
     should_process = args.process or config.after_stop.transcribe or config.after_stop.notes
+    transcript_path = None
+    notes_path = None
+    if not args.json:
+        print(f"Recording stopped: {paths.root}")
     if should_process:
         if args.process or config.after_stop.transcribe:
-            transcribe_session(paths, config)
-            print("Transcription complete")
+            transcript_path = transcribe_session(paths, config)
+            if not args.json:
+                print("Transcription complete")
         if args.process or config.after_stop.notes:
-            generate_notes(paths, config)
-            print("Notes complete")
+            notes_path = generate_notes(paths, config)
+            if not args.json:
+                print("Notes complete")
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "stopped": True,
+                    "session_path": str(paths.root),
+                    "stopped_at": stopped_at,
+                    "processed": should_process,
+                    "transcript_path": str(transcript_path) if transcript_path else None,
+                    "notes_path": str(notes_path) if notes_path else None,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
 
 
 def cmd_status(args: argparse.Namespace) -> None:

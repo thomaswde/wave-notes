@@ -37,6 +37,18 @@ class ContractTests(unittest.TestCase):
 
         self.assertIsNone(args.title)
 
+    def test_start_json_is_supported(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["start", "--json"])
+
+        self.assertTrue(args.json)
+
+    def test_stop_json_is_supported(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["stop", "--json"])
+
+        self.assertTrue(args.json)
+
     def test_status_json_is_supported(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["status", "--json"])
@@ -106,6 +118,57 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(payload["started_at"], started_at)
             self.assertGreaterEqual(payload["elapsed_seconds"], 60)
             self.assertEqual(payload["latest_session_path"], str(session.root))
+
+    def test_start_json_reports_started_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output_root = root / "Meetings"
+            config_path = root / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{output_root.as_posix()}"\n', encoding="utf-8")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "start", "Tray test", "--json"])
+
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"WAVE_NOTES_HOME": str(root / "home")}),
+                patch("wave_notes.cli.subprocess.Popen") as popen,
+                redirect_stdout(output),
+            ):
+                popen.return_value.pid = 4321
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["started"])
+            self.assertEqual(payload["pid"], 4321)
+            self.assertTrue(payload["session_path"].endswith("_tray-test"))
+            self.assertIsInstance(payload["started_at"], str)
+
+    def test_stop_json_reports_stopped_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output_root = root / "Meetings"
+            config_path = root / "config.toml"
+            config_path.write_text(f'[output]\nroot_dir = "{output_root.as_posix()}"\n', encoding="utf-8")
+            session = make_session(AppConfig(output=OutputConfig(root_dir=output_root)), "Stopped tray test")
+            parser = build_parser()
+            args = parser.parse_args(["--config", str(config_path), "stop", "--json"])
+
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"WAVE_NOTES_HOME": str(root / "home")}),
+                patch("wave_notes.cli.process_alive", return_value=False),
+                redirect_stdout(output),
+            ):
+                write_state({"pid": 1234, "session_dir": str(session.root)})
+                args.handler(args)
+
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["stopped"])
+            self.assertEqual(payload["session_path"], str(session.root))
+            self.assertIsInstance(payload["stopped_at"], str)
+            self.assertFalse(payload["processed"])
+            self.assertIsNone(payload["transcript_path"])
+            self.assertIsNone(payload["notes_path"])
 
     def test_latest_json_reports_missing_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
