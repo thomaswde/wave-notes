@@ -37,6 +37,7 @@ class NotesConfig:
     pi_command: str = "pi"
     pi_model: str | None = None
     pi_provider: str | None = None
+    pi_thinking: str | None = None
     openai_model: str = "gpt-4.1-mini"
 
 
@@ -101,6 +102,7 @@ def load_config(path: Path | None = None) -> AppConfig:
             pi_command=str(notes.get("pi_command", "pi")),
             pi_model=_optional_str(notes.get("pi_model")),
             pi_provider=_optional_str(notes.get("pi_provider")),
+            pi_thinking=_optional_str(notes.get("pi_thinking")),
             openai_model=str(notes.get("openai_model", "gpt-4.1-mini")),
         ),
         after_stop=AfterStopConfig(
@@ -140,6 +142,7 @@ pi_command = "pi"
 # Optional, leave blank to use Pi defaults/subscription auth.
 pi_model = ""
 pi_provider = ""
+pi_thinking = ""
 openai_model = "gpt-4.1-mini"
 
 [after_stop]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import signal
 import threading
 import time
@@ -8,6 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from .config import AudioConfig
+
+
+WAV_SAMPLE_WIDTHS = {
+    "int16": 2,
+    "int32": 4,
+}
 
 
 def list_devices() -> list[dict[str, Any]]:
@@ -47,8 +54,10 @@ def select_input_device(device_name: str | None) -> int | None:
 
 def record_until_stopped(audio_path: Path, config: AudioConfig, stop_signal: Path | None = None) -> None:
     sd = _sounddevice()
+    sample_width = _wav_sample_width(config.dtype)
     device = select_input_device(config.device_name)
     stop_event = threading.Event()
+    audio_queue: queue.SimpleQueue[bytes] = queue.SimpleQueue()
 
     def stop(_signum: int, _frame: object) -> None:
         stop_event.set()
@@ -59,13 +68,13 @@ def record_until_stopped(audio_path: Path, config: AudioConfig, stop_signal: Pat
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(audio_path), "wb") as wav:
         wav.setnchannels(config.channels)
-        wav.setsampwidth(2)
+        wav.setsampwidth(sample_width)
         wav.setframerate(config.sample_rate)
 
         def callback(indata: Any, frames: int, _time_info: Any, status: Any) -> None:
             if status:
                 print(status, flush=True)
-            wav.writeframes(indata.tobytes())
+            audio_queue.put(indata.tobytes())
 
         with sd.InputStream(
             samplerate=config.sample_rate,
@@ -78,11 +87,15 @@ def record_until_stopped(audio_path: Path, config: AudioConfig, stop_signal: Pat
                 if stop_signal and stop_signal.exists():
                     stop_event.set()
                     break
+                _write_queued_audio(wav, audio_queue)
                 time.sleep(0.1)
+            _write_queued_audio(wav, audio_queue)
+        _write_queued_audio(wav, audio_queue)
 
 
 def record_for_seconds(audio_path: Path, config: AudioConfig, seconds: float) -> None:
     sd = _sounddevice()
+    sample_width = _wav_sample_width(config.dtype)
     device = select_input_device(config.device_name)
     frames = int(config.sample_rate * seconds)
     data = sd.rec(
@@ -96,7 +109,7 @@ def record_for_seconds(audio_path: Path, config: AudioConfig, seconds: float) ->
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(audio_path), "wb") as wav:
         wav.setnchannels(config.channels)
-        wav.setsampwidth(2)
+        wav.setsampwidth(sample_width)
         wav.setframerate(config.sample_rate)
         wav.writeframes(data.tobytes())
 
@@ -138,3 +151,23 @@ def _sounddevice() -> Any:
             "Install with: python -m pip install -e '.[audio]'"
         ) from exc
     return sd
+
+
+def _write_queued_audio(wav: wave.Wave_write, audio_queue: queue.SimpleQueue[bytes]) -> None:
+    while True:
+        try:
+            chunk = audio_queue.get_nowait()
+        except queue.Empty:
+            break
+        wav.writeframesraw(chunk)
+
+
+def _wav_sample_width(dtype: str) -> int:
+    try:
+        return WAV_SAMPLE_WIDTHS[dtype]
+    except KeyError as exc:
+        supported = ", ".join(sorted(WAV_SAMPLE_WIDTHS))
+        raise SystemExit(
+            f"Unsupported audio dtype for WAV recording: {dtype}. "
+            f"Use one of: {supported}."
+        ) from exc

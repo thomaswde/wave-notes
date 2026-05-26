@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .audio import list_devices, record_for_seconds
+from .audio import WAV_SAMPLE_WIDTHS, list_devices, record_for_seconds
 from .config import load_config, write_default_config
 from .notes import generate_notes
 from .session import (
@@ -109,7 +109,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     try:
         import sounddevice  # noqa: F401
 
-        check("Audio package", True, "sounddevice import works")
+        import numpy  # noqa: F401
+
+        check("Audio package", True, "sounddevice and numpy import")
     except ImportError:
         check("Audio package", False, "install with: python -m pip install -e '.[audio]'")
 
@@ -123,6 +125,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         bool(config.audio.device_name),
         config.audio.device_name or "not set; default input will be used",
         required=False,
+    )
+    check(
+        "Audio dtype",
+        config.audio.dtype in WAV_SAMPLE_WIDTHS,
+        config.audio.dtype if config.audio.dtype in WAV_SAMPLE_WIDTHS else f"{config.audio.dtype}; use int16 or int32",
     )
 
     if failures:

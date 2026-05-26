@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -63,8 +65,7 @@ Transcript:
 
 
 def _generate_with_pi(prompt_path: Path, config: AppConfig) -> str:
-    cmd = [
-        config.notes.pi_command,
+    args = [
         "--no-tools",
         "--no-session",
         "--mode",
@@ -72,19 +73,53 @@ def _generate_with_pi(prompt_path: Path, config: AppConfig) -> str:
         "-p",
     ]
     if config.notes.pi_provider:
-        cmd.extend(["--provider", config.notes.pi_provider])
+        args.extend(["--provider", config.notes.pi_provider])
     if config.notes.pi_model:
-        cmd.extend(["--model", config.notes.pi_model])
-    cmd.append(f"@{prompt_path}")
+        args.extend(["--model", config.notes.pi_model])
+    thinking = _pi_thinking_arg(config.notes.pi_thinking)
+    if thinking:
+        args.extend(["--thinking", thinking])
+    args.append(f"@{prompt_path}")
 
-    completed = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    cmd = _pi_subprocess_command(config.notes.pi_command, args)
+    try:
+        completed = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            "Pi notes generation failed.\n"
+            f"Command not found: {config.notes.pi_command}\n"
+            "Set [notes].pi_command to the full path or add Pi to PATH."
+        ) from exc
     if completed.returncode != 0:
         raise SystemExit(
             "Pi notes generation failed.\n"
             f"Command: {' '.join(cmd)}\n"
             f"stderr:\n{completed.stderr.strip()}"
         )
-    return completed.stdout
+    return completed.stdout or ""
+
+
+def _pi_subprocess_command(command: str, args: list[str]) -> list[str]:
+    resolved = shutil.which(command) or command
+    suffix = Path(resolved).suffix.casefold()
+    if os.name == "nt" and suffix in {".bat", ".cmd"}:
+        command_line = subprocess.list2cmdline([resolved, *args])
+        return ["cmd.exe", "/d", "/c", command_line]
+    return [resolved, *args]
+
+
+def _pi_thinking_arg(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().casefold()
+    return "off" if normalized == "none" else normalized
 
 
 def _generate_with_openai(prompt: str, config: AppConfig) -> str:

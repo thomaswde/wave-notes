@@ -8,7 +8,7 @@ Markdown meeting notes with Pi or OpenAI.
 
 ## What This Builds
 
-The target workflow is intentionally simple:
+The workflow is simple:
 
 ```powershell
 meeting devices
@@ -156,6 +156,7 @@ provider = "pi"
 pi_command = "pi"
 pi_model = ""
 pi_provider = ""
+pi_thinking = ""
 openai_model = "gpt-4.1-mini"
 
 [after_stop]
@@ -291,7 +292,7 @@ Pi notes generation fails:
 - Run `pi --version`.
 - Confirm the `pi` command is on `PATH`.
 - Try `meeting notes latest --provider openai` to isolate whether the transcript
-  and notes prompt are valid.
+and notes prompt are valid.
 
 ## Current Readiness Notes
 
@@ -300,13 +301,13 @@ real PC validation:
 
 - Wave Link device naming and capture behavior on Windows.
 - Whether `sounddevice`/PortAudio reliably records `Wave Link Stream` for long
-  meetings.
+meetings.
 - Whether 30-second fixed WAV chunks are the right size for quality and cost.
 - Whether Pi CLI invocation is the right long-term notes integration, or whether
-  we should replace it with a direct Pi SDK adapter once that API is available in
-  this project.
+we should replace it with a direct Pi SDK adapter once that API is available in
+this project.
 - Windows packaging is still developer CLI only; there is no installer or `.exe`
-  wrapper yet.
+wrapper yet.
 - Only OpenAI STT is implemented. Parakeet/local STT is intentionally deferred.
 
 The durable contract is in place: session folders, original WAV preservation,

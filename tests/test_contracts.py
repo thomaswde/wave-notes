@@ -6,8 +6,9 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from wave_notes.audio import split_wav_fixed
+from wave_notes.audio import _wav_sample_width, split_wav_fixed
 from wave_notes.config import load_config
+from wave_notes.notes import _pi_subprocess_command, _pi_thinking_arg
 from wave_notes.session import slugify
 
 
@@ -38,6 +39,24 @@ class ContractTests(unittest.TestCase):
             result = split_wav_fixed(source, chunks, chunk_seconds=1)
 
             self.assertEqual([p.name for p in result], ["000001.wav", "000002.wav", "000003.wav"])
+
+    def test_unsupported_recording_dtype_exits_clearly(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "Unsupported audio dtype"):
+            _wav_sample_width("int24")
+
+    @patch("wave_notes.notes.os.name", "nt")
+    @patch("wave_notes.notes.shutil.which", return_value=r"C:\Tools\pi.cmd")
+    def test_pi_cmd_shim_runs_through_cmd_exe(self, _which) -> None:
+        command = _pi_subprocess_command("pi", ["--version"])
+
+        self.assertEqual(command[:3], ["cmd.exe", "/d", "/c"])
+        self.assertIn(r"C:\Tools\pi.cmd", command[3])
+        self.assertIn("--version", command[3])
+
+    def test_pi_thinking_none_maps_to_off(self) -> None:
+        self.assertEqual(_pi_thinking_arg("none"), "off")
+        self.assertEqual(_pi_thinking_arg("medium"), "medium")
+        self.assertIsNone(_pi_thinking_arg(""))
 
 
 if __name__ == "__main__":
